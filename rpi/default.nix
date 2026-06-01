@@ -1,5 +1,5 @@
 {
-  pinned,
+  pinnedFor,
   core-overlay,
   libcamera-overlay,
 }:
@@ -12,6 +12,7 @@
 
 let
   cfg = config.raspberry-pi-nix;
+  pinned = pinnedFor pkgs;
   version = cfg.kernel-version;
   board = cfg.board;
   kernel = config.system.build.kernel;

@@ -40,12 +40,37 @@
   outputs =
     srcs@{ self, ... }:
     let
+      rpiSystem = "aarch64-linux";
+      pinnedOverlays = with self.overlays; [
+        core
+        libcamera
+      ];
+      pinnedFor =
+        pkgs:
+        let
+          buildPlatform = pkgs.stdenv.buildPlatform;
+          hostPlatform = pkgs.stdenv.hostPlatform;
+          isCross = buildPlatform.system != hostPlatform.system;
+        in
+        import srcs.nixpkgs (
+          {
+            localSystem = buildPlatform;
+            overlays = pinnedOverlays;
+          }
+          // (
+            if isCross then
+              {
+                crossSystem = hostPlatform;
+              }
+            else
+              { }
+          )
+        );
       pinned = import srcs.nixpkgs {
-        system = "aarch64-linux";
-        overlays = with self.overlays; [
-          core
-          libcamera
-        ];
+        localSystem = {
+          system = rpiSystem;
+        };
+        overlays = pinnedOverlays;
       };
     in
     {
@@ -55,7 +80,7 @@
       };
       nixosModules = {
         raspberry-pi = import ./rpi {
-          inherit pinned;
+          inherit pinnedFor;
           core-overlay = self.overlays.core;
           libcamera-overlay = self.overlays.libcamera;
         };
@@ -63,8 +88,8 @@
       };
       nixosConfigurations = {
         rpi-example = srcs.nixpkgs.lib.nixosSystem {
-          system = "aarch64-linux";
           modules = [
+            { nixpkgs.hostPlatform = rpiSystem; }
             self.nixosModules.raspberry-pi
             self.nixosModules.sd-image
             ./example
