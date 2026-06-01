@@ -23,12 +23,33 @@ let
     "bcm2712"
   ];
 
+  kernelVersionFromMakefile =
+    src:
+    let
+      makefile = builtins.readFile "${src}/Makefile";
+      lines = final.lib.splitString "\n" makefile;
+      readVar =
+        name:
+        let
+          prefix = "${name} =";
+          matches = builtins.filter (final.lib.hasPrefix prefix) lines;
+          raw = final.lib.removePrefix prefix (builtins.head matches);
+        in
+        final.lib.removePrefix " " raw;
+      version = readVar "VERSION";
+      patchlevel = readVar "PATCHLEVEL";
+      sublevel = readVar "SUBLEVEL";
+      extraversion = readVar "EXTRAVERSION";
+      patch = final.lib.optionalString (sublevel != "0") ".${sublevel}";
+    in
+    "${version}.${patchlevel}${patch}${extraversion}";
+
   # Helpers for building the `pkgs.rpi-kernels' map.
   rpi-kernel =
     { version, board }:
     let
       kernel = builtins.getAttr version versions;
-      version-slug = builtins.replaceStrings [ "v" "_" ] [ "" "." ] version;
+      version-slug = kernel.version or (kernelVersionFromMakefile kernel.src);
     in
     {
       "${version}"."${board}" =
