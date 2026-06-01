@@ -21,6 +21,7 @@ tracked_series=(
 
 accepted=()
 skipped=()
+unchanged=()
 
 write_output() {
   local name="$1"
@@ -35,6 +36,12 @@ resolve_branch_sha() {
   local branch="$1"
 
   gh api "/repos/${repo}/git/ref/heads/${branch}" --jq '.object.sha'
+}
+
+current_locked_rev() {
+  local input="$1"
+
+  jq -r --arg input "$input" '.nodes[$input].locked.rev // ""' flake.lock
 }
 
 status_signal_is_good() {
@@ -149,9 +156,15 @@ for entry in "${tracked_series[@]}"; do
 
   case "$result" in
     0)
-      echo "Accepting ${version} (${branch}) at ${sha}"
-      nix flake lock --override-input "$input" "github:${repo}?rev=${sha}"
-      accepted+=("${version}|${branch}|${input}|${sha}")
+      current_rev="$(current_locked_rev "$input")"
+      if [[ "$current_rev" == "$sha" ]]; then
+        echo "Keeping ${version} (${branch}) at ${sha}: already locked"
+        unchanged+=("${version}|${branch}|${input}|${sha}")
+      else
+        echo "Accepting ${version} (${branch}) at ${sha}"
+        nix flake lock --override-input "$input" "github:${repo}?rev=${sha}"
+        accepted+=("${version}|${branch}|${input}|${sha}")
+      fi
       ;;
     1)
       echo "Skipping ${version} (${branch}) at ${sha}: upstream checks are not successful"
@@ -173,6 +186,16 @@ done
     echo "### Accepted updates"
     echo
     for item in "${accepted[@]}"; do
+      IFS='|' read -r version branch input sha <<< "$item"
+      echo "- \`${version}\` / \`${branch}\` / \`${input}\`: \`${sha}\`"
+    done
+    echo
+  fi
+
+  if (( ${#unchanged[@]} > 0 )); then
+    echo "### Already current"
+    echo
+    for item in "${unchanged[@]}"; do
       IFS='|' read -r version branch input sha <<< "$item"
       echo "- \`${version}\` / \`${branch}\` / \`${input}\`: \`${sha}\`"
     done
