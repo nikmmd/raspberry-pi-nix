@@ -58,7 +58,7 @@ jobs:
           git fetch origin "+refs/heads/$BRANCH_NAME:refs/remotes/origin/$BRANCH_NAME" || true
 
           git switch -c "$BRANCH_NAME"
-          git add flake.nix flake.lock
+          git add flake.lock
           git commit -m 'chore: update raspberry pi kernel locks' -m 'Update tracked Raspberry Pi kernel flake inputs after verifying upstream checks.'
 
           if git rev-parse --verify "refs/remotes/origin/$BRANCH_NAME" >/dev/null 2>&1; then

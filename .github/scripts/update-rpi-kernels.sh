@@ -1,5 +1,5 @@
 #!/usr/bin/env nix
-#! nix shell nixpkgs#bash nixpkgs#git nixpkgs#gh nixpkgs#jq nixpkgs#perl --command bash
+#! nix shell nixpkgs#bash nixpkgs#git nixpkgs#gh nixpkgs#jq --command bash
 set -euo pipefail
 
 summary_file="${1:-kernel-update-summary.md}"
@@ -35,31 +35,6 @@ resolve_branch_sha() {
   local branch="$1"
 
   gh api "/repos/${repo}/git/ref/heads/${branch}" --jq '.object.sha'
-}
-
-update_flake_input_rev() {
-  local input="$1"
-  local sha="$2"
-  local url="github:${repo}?rev=${sha}"
-
-  INPUT_NAME="$input" INPUT_URL="$url" perl -0 -e '
-    my $input = $ENV{"INPUT_NAME"};
-    my $url = $ENV{"INPUT_URL"};
-    my $path = "flake.nix";
-
-    open my $fh, "<", $path or die "Unable to read $path: $!\n";
-    local $/;
-    my $content = <$fh>;
-    close $fh;
-
-    my $re = qr/(\Q$input\E\s*=\s*\{.*?url\s*=\s*")[^"]+(")/s;
-    my $count = ($content =~ s/$re/$1$url$2/g);
-    die "Expected to update exactly one URL for $input, updated $count\n" unless $count == 1;
-
-    open my $out, ">", $path or die "Unable to write $path: $!\n";
-    print {$out} $content;
-    close $out;
-  '
 }
 
 status_signal_is_good() {
@@ -175,8 +150,7 @@ for entry in "${tracked_series[@]}"; do
   case "$result" in
     0)
       echo "Accepting ${version} (${branch}) at ${sha}"
-      update_flake_input_rev "$input" "$sha"
-      nix flake update "$input"
+      nix flake lock --override-input "$input" "github:${repo}?rev=${sha}"
       accepted+=("${version}|${branch}|${input}|${sha}")
       ;;
     1)
@@ -216,7 +190,7 @@ done
   fi
 } >> "$summary_file"
 
-if git diff --quiet -- flake.nix flake.lock; then
+if git diff --quiet -- flake.lock; then
   write_output "changed" "false"
 else
   write_output "changed" "true"

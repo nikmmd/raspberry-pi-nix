@@ -126,8 +126,8 @@
       },
       "original": {
         "owner": "raspberrypi",
+        "ref": "rpi-6.12.y",
         "repo": "linux",
-        "rev": "0a382e93f18ae5b8b7f10d62106b5480c2a0f1dd",
         "type": "github"
       }
     },
@@ -143,8 +143,8 @@
       },
       "original": {
         "owner": "raspberrypi",
+        "ref": "rpi-6.18.y",
         "repo": "linux",
-        "rev": "046dfc1a48046eac01ba99e54b408c3b6e2a2fee",
         "type": "github"
       }
     },
