@@ -26,7 +26,7 @@ in
   options = with lib; {
     raspberry-pi-nix = {
       kernel-version = mkOption {
-        default = "v6_12_30";
+        default = "v6_12";
         type = types.str;
         description = "Kernel version to build.";
       };

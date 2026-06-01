@@ -1,7 +1,6 @@
 {
-  rpi-linux-stable-src,
-  rpi-linux-6_6_78-src,
-  rpi-linux-6_12_30-src,
+  rpi-linux-6_12-src,
+  rpi-linux-6_18-src,
   rpi-firmware-src,
   rpi-firmware-nonfree-src,
   rpi-bluez-firmware-src,
@@ -10,19 +9,13 @@
 final: prev:
 let
   versions = {
-    v6_6_51.src = rpi-linux-stable-src;
-    v6_6_78.src = rpi-linux-6_6_78-src;
-    v6_12_30 = {
-      src = rpi-linux-6_12_30-src;
-      patches = [
-        # {
-        #   name = "remove-readme-target.patch";
-        #   patch = final.fetchpatch {
-        #     url = "https://github.com/raspberrypi/linux/commit/3c0fd51d184f1748b83d28e1113265425c19bcb5.patch";
-        #     hash = "sha256-v7uZOmPCUp2i7NGVgjqnQYe6dEBD+aATuP/oRs9jfuk=";
-        #   };
-        # }
-      ];
+    v6_12 = {
+      src = rpi-linux-6_12-src;
+      patches = [ ];
+    };
+    v6_18 = {
+      src = rpi-linux-6_18-src;
+      patches = [ ];
     };
   };
   boards = [
@@ -116,7 +109,7 @@ in
   # rpi kernels and firmware are available at
   # `pkgs.rpi-kernels.<VERSION>.<BOARD>'.
   #
-  # For example: `pkgs.rpi-kernels.v6_6_78.bcm2712'
+  # For example: `pkgs.rpi-kernels.v6_12.bcm2712'
   rpi-kernels = rpi-kernels (
     final.lib.cartesianProduct {
       board = boards;

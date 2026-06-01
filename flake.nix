@@ -3,18 +3,13 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
-    rpi-linux-stable-src = {
+    rpi-linux-6_12-src = {
       flake = false;
-      url = "github:raspberrypi/linux/stable_20241008";
+      url = "github:raspberrypi/linux?rev=0a382e93f18ae5b8b7f10d62106b5480c2a0f1dd";
     };
-    rpi-linux-6_6_78-src = {
+    rpi-linux-6_18-src = {
       flake = false;
-      url = "github:raspberrypi/linux/rpi-6.6.y";
-    };
-    rpi-linux-6_12_30-src = {
-      flake = false;
-      url = "github:raspberrypi/linux?rev=23e6672404e861634632f17e9d3253d265cc8186";
-      #6.12.30
+      url = "github:raspberrypi/linux?rev=046dfc1a48046eac01ba99e54b408c3b6e2a2fee";
     };
     rpi-firmware-src = {
       flake = false;

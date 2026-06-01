@@ -1,0 +1,82 @@
+name: update-rpi-kernels
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-rpi-kernels
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Check updater script
+        run: nix shell nixpkgs#shellcheck -c shellcheck -s bash .github/scripts/update-rpi-kernels.sh
+
+      - name: Update checked-good Raspberry Pi kernel locks
+        id: update
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/update-rpi-kernels.sh kernel-update-summary.md
+
+      - name: Evaluate tracked kernel derivations
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          nix eval '.#packages.aarch64-linux."linux-v6_12-bcm2711".drvPath'
+          nix eval '.#packages.aarch64-linux."linux-v6_12-bcm2712".drvPath'
+          nix eval '.#packages.aarch64-linux."linux-v6_18-bcm2711".drvPath'
+          nix eval '.#packages.aarch64-linux."linux-v6_18-bcm2712".drvPath'
+
+      - name: Create or update pull request
+        if: steps.update.outputs.changed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH_NAME: automation/kernel-updates
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          nix shell nixpkgs#bash nixpkgs#git nixpkgs#gh -c bash <<'EOF'
+          set -euo pipefail
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git fetch origin "+refs/heads/$BRANCH_NAME:refs/remotes/origin/$BRANCH_NAME" || true
+
+          git switch -c "$BRANCH_NAME"
+          git add flake.nix flake.lock
+          git commit -m 'chore: update raspberry pi kernel locks' -m 'Update tracked Raspberry Pi kernel flake inputs after verifying upstream checks.'
+
+          if git rev-parse --verify "refs/remotes/origin/$BRANCH_NAME" >/dev/null 2>&1; then
+            expected="$(git rev-parse "refs/remotes/origin/$BRANCH_NAME")"
+            git push --force-with-lease="refs/heads/$BRANCH_NAME:$expected" origin "HEAD:$BRANCH_NAME"
+          else
+            git push --force-with-lease="refs/heads/$BRANCH_NAME:" origin "HEAD:$BRANCH_NAME"
+          fi
+
+          if gh pr view "$BRANCH_NAME" --json number >/dev/null 2>&1; then
+            gh pr edit "$BRANCH_NAME" \
+              --title 'chore: update raspberry pi kernel locks' \
+              --body-file kernel-update-summary.md
+          else
+            gh pr create \
+              --base "$BASE_BRANCH" \
+              --head "$BRANCH_NAME" \
+              --title 'chore: update raspberry pi kernel locks' \
+              --body-file kernel-update-summary.md
+          fi
+          EOF

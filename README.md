@@ -78,7 +78,7 @@ format. For example:
 ```nix
 #rpi4
 raspberry-pi-nix.board = "bcm2711";
-raspberry-pi-nix.kernel-version = "v6_12_17";
+raspberry-pi-nix.kernel-version = "v6_12";
 
 hardware.raspberry-pi.config = {
   cm4 = {
