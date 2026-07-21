@@ -60,6 +60,7 @@
         "rpi-firmware-src": "rpi-firmware-src",
         "rpi-linux-6_12-src": "rpi-linux-6_12-src",
         "rpi-linux-6_18-src": "rpi-linux-6_18-src",
+        "rpi-linux-7_1-src": "rpi-linux-7_1-src",
         "rpicam-apps-src": "rpicam-apps-src"
       }
     },
@@ -144,6 +145,23 @@
       "original": {
         "owner": "raspberrypi",
         "ref": "rpi-6.18.y",
+        "repo": "linux",
+        "type": "github"
+      }
+    },
+    "rpi-linux-7_1-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784305798,
+        "narHash": "sha256-IuQrDVbf1l6VjO/rhtbRWPw7H+RyWO71nyLlsAoAZGo=",
+        "owner": "raspberrypi",
+        "repo": "linux",
+        "rev": "ca92a30381ffbcd6f80cdf9111e7c52c8e0ed5aa",
+        "type": "github"
+      },
+      "original": {
+        "owner": "raspberrypi",
+        "ref": "rpi-7.1.y",
         "repo": "linux",
         "type": "github"
       }

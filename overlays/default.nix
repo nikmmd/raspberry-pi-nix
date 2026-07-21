@@ -1,6 +1,7 @@
 {
   rpi-linux-6_12-src,
   rpi-linux-6_18-src,
+  rpi-linux-7_1-src,
   rpi-firmware-src,
   rpi-firmware-nonfree-src,
   rpi-bluez-firmware-src,
@@ -15,6 +16,10 @@ let
     };
     v6_18 = {
       src = rpi-linux-6_18-src;
+      patches = [ ];
+    };
+    v7_1 = {
+      src = rpi-linux-7_1-src;
       patches = [ ];
     };
   };
