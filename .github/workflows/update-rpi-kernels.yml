@@ -2,25 +2,26 @@ name: update-rpi-kernels
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - master
   schedule:
     - cron: '0 6 * * 1'
 
 permissions:
-  contents: write
-  pull-requests: write
-
-concurrency:
-  group: update-rpi-kernels
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  update:
+  discover:
     runs-on: ubuntu-latest
+    outputs:
+      series: ${{ steps.series.outputs.series }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Install nix
         uses: DeterminateSystems/nix-installer-action@main
@@ -28,55 +29,124 @@ jobs:
       - name: Check updater script
         run: nix shell nixpkgs#shellcheck -c shellcheck -s bash .github/scripts/update-rpi-kernels.sh
 
-      - name: Update checked-good Raspberry Pi kernel locks
+      - name: List tracked kernel series
+        id: series
+        run: echo "series=$(.github/scripts/update-rpi-kernels.sh --list-series)" >> "$GITHUB_OUTPUT"
+
+  update:
+    needs: discover
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        series: ${{ fromJSON(needs.discover.outputs.series) }}
+    concurrency:
+      group: update-rpi-kernels-${{ matrix.series }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Install nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Update checked-good Raspberry Pi kernel lock
         id: update
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: .github/scripts/update-rpi-kernels.sh kernel-update-summary.md
+        run: |
+          .github/scripts/update-rpi-kernels.sh "${{ matrix.series }}" kernel-update-summary.md
+          cat kernel-update-summary.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Evaluate tracked kernel derivations
+      - name: Evaluate kernel derivations
         if: steps.update.outputs.changed == 'true'
         run: |
-          nix eval '.#packages.aarch64-linux."linux-v6_12-bcm2711".drvPath'
-          nix eval '.#packages.aarch64-linux."linux-v6_12-bcm2712".drvPath'
-          nix eval '.#packages.aarch64-linux."linux-v6_18-bcm2711".drvPath'
-          nix eval '.#packages.aarch64-linux."linux-v6_18-bcm2712".drvPath'
+          nix eval --no-write-lock-file '.#packages.aarch64-linux."linux-${{ matrix.series }}-bcm2711".drvPath'
+          nix eval --no-write-lock-file '.#packages.aarch64-linux."linux-${{ matrix.series }}-bcm2712".drvPath'
+          cat >> kernel-update-summary.md <<'EOF'
+
+          ### Repository validation
+
+          - `bcm2711` derivation evaluated successfully
+          - `bcm2712` derivation evaluated successfully
+
+          ### Automation lifecycle
+
+          This PR rolls forward to newer checked-good commits while it remains open. After merge, the next update for this series creates a new PR from the same series branch.
+          EOF
 
       - name: Create or update pull request
         if: steps.update.outputs.changed == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH_NAME: automation/kernel-updates
           BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH_NAME: automation/kernel-${{ matrix.series }}
+          VERSION: ${{ matrix.series }}
+          TARGET_REV: ${{ steps.update.outputs.new_rev }}
+          SHORT_REV: ${{ steps.update.outputs.short_rev }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
-          nix shell nixpkgs#bash nixpkgs#git nixpkgs#gh -c bash <<'EOF'
           set -euo pipefail
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          gh auth setup-git
 
-          git fetch origin "+refs/heads/$BRANCH_NAME:refs/remotes/origin/$BRANCH_NAME" || true
-
-          git switch -c "$BRANCH_NAME"
+          git switch -C "$BRANCH_NAME"
           git add flake.lock
-          git commit -m 'chore: update raspberry pi kernel locks' -m 'Update tracked Raspberry Pi kernel flake inputs after verifying upstream checks.'
+          git commit \
+            -m "chore(kernel): update Raspberry Pi ${VERSION#v} kernel" \
+            -m "Update the checked-good ${VERSION} kernel lock to ${TARGET_REV}."
 
-          if git rev-parse --verify "refs/remotes/origin/$BRANCH_NAME" >/dev/null 2>&1; then
-            expected="$(git rev-parse "refs/remotes/origin/$BRANCH_NAME")"
-            git push --force-with-lease="refs/heads/$BRANCH_NAME:$expected" origin "HEAD:$BRANCH_NAME"
+          remote_ref="refs/heads/$BRANCH_NAME"
+          remote_sha="$(git ls-remote --heads origin "$remote_ref" | awk '{print $1}')"
+
+          if [[ -n "$remote_sha" ]]; then
+            git fetch origin "$remote_ref"
+
+            if [[ "$(git show -s --format='%ae' "$remote_sha")" != '41898282+github-actions[bot]@users.noreply.github.com' ]]; then
+              echo "Refusing to overwrite non-bot branch $BRANCH_NAME" >&2
+              exit 1
+            fi
+
+            while IFS= read -r path; do
+              if [[ "$path" != 'flake.lock' ]]; then
+                echo "Refusing to overwrite $BRANCH_NAME with non-lockfile change: $path" >&2
+                exit 1
+              fi
+            done < <(git diff --name-only "origin/$BASE_BRANCH...$remote_sha")
+
+            if ! git diff --quiet "$remote_sha" HEAD; then
+              git push --force-with-lease="$remote_ref:$remote_sha" origin "HEAD:$remote_ref"
+            fi
           else
-            git push --force-with-lease="refs/heads/$BRANCH_NAME:" origin "HEAD:$BRANCH_NAME"
+            git push --force-with-lease="$remote_ref:" origin "HEAD:$remote_ref"
           fi
 
-          if gh pr view "$BRANCH_NAME" --json number >/dev/null 2>&1; then
-            gh pr edit "$BRANCH_NAME" \
-              --title 'chore: update raspberry pi kernel locks' \
-              --body-file kernel-update-summary.md
+          pr_number="$(
+            gh api --method GET "/repos/$GITHUB_REPOSITORY/pulls" \
+              -f state=open \
+              -f base="$BASE_BRANCH" \
+              -f head="$REPOSITORY_OWNER:$BRANCH_NAME" \
+              --jq '.[0].number // empty'
+          )"
+          display_version="${VERSION#v}"
+          display_version="${display_version/_/.}"
+          title="chore(kernel): update Raspberry Pi ${display_version} to ${SHORT_REV}"
+
+          if [[ -n "$pr_number" ]]; then
+            gh pr edit "$pr_number" --title "$title" --body-file kernel-update-summary.md
           else
             gh pr create \
               --base "$BASE_BRANCH" \
               --head "$BRANCH_NAME" \
-              --title 'chore: update raspberry pi kernel locks' \
+              --title "$title" \
               --body-file kernel-update-summary.md
           fi
-          EOF

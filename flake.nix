@@ -41,6 +41,26 @@
     srcs@{ self, ... }:
     let
       rpiSystem = "aarch64-linux";
+      kernelSeries =
+        builtins.map
+          (
+            input:
+            let
+              version = builtins.match "rpi-linux-([0-9]+)_([0-9]+)-src" input;
+              major = builtins.elemAt version 0;
+              minor = builtins.elemAt version 1;
+            in
+            {
+              inherit input;
+              version = "v${major}_${minor}";
+              branch = "rpi-${major}.${minor}.y";
+            }
+          )
+          (
+            builtins.filter
+              (input: builtins.match "rpi-linux-[0-9]+_[0-9]+-src" input != null)
+              (builtins.attrNames srcs)
+          );
       pinnedOverlays = with self.overlays; [
         core
         libcamera
@@ -74,6 +94,7 @@
       };
     in
     {
+      lib.rpiKernelSeries = kernelSeries;
       overlays = {
         core = import ./overlays (builtins.removeAttrs srcs [ "self" ]);
         libcamera = import ./overlays/libcamera.nix (builtins.removeAttrs srcs [ "self" ]);

@@ -2,26 +2,8 @@
 #! nix shell nixpkgs#bash nixpkgs#git nixpkgs#gh nixpkgs#jq --command bash
 set -euo pipefail
 
-summary_file="${1:-kernel-update-summary.md}"
 repo="raspberrypi/linux"
-
-if [[ -z "${GITHUB_TOKEN:-}" && -z "${GH_TOKEN:-}" ]]; then
-  echo "GITHUB_TOKEN or GH_TOKEN must be set" >&2
-  exit 1
-fi
-
-if [[ -z "${GH_TOKEN:-}" ]]; then
-  export GH_TOKEN="$GITHUB_TOKEN"
-fi
-
-tracked_series=(
-  "v6_12|rpi-6.12.y|rpi-linux-6_12-src"
-  "v6_18|rpi-6.18.y|rpi-linux-6_18-src"
-)
-
-accepted=()
-skipped=()
-unchanged=()
+series_json="$(nix eval --json --no-write-lock-file 'path:.#lib.rpiKernelSeries')"
 
 write_output() {
   local name="$1"
@@ -32,56 +14,87 @@ write_output() {
   fi
 }
 
-resolve_branch_sha() {
-  local branch="$1"
+list_series() {
+  jq -c '[.[].version]' <<< "$series_json"
+}
 
+if [[ "${1:-}" == "--list-series" ]]; then
+  list_series
+  exit 0
+fi
+
+version="${1:-}"
+summary_file="${2:-kernel-update-summary.md}"
+
+if [[ -z "$version" ]]; then
+  echo "usage: $0 --list-series | <version> [summary-file]" >&2
+  exit 1
+fi
+
+selected="$(jq -c --arg version "$version" '.[] | select(.version == $version)' <<< "$series_json")"
+
+if [[ -z "$selected" ]]; then
+  echo "unknown tracked kernel series: ${version}" >&2
+  exit 1
+fi
+
+if [[ -z "${GITHUB_TOKEN:-}" && -z "${GH_TOKEN:-}" ]]; then
+  echo "GITHUB_TOKEN or GH_TOKEN must be set" >&2
+  exit 1
+fi
+
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  export GH_TOKEN="$GITHUB_TOKEN"
+fi
+
+branch="$(jq -r '.branch' <<< "$selected")"
+input="$(jq -r '.input' <<< "$selected")"
+status_total=0
+status_state="none"
+checks_total=0
+checks_success=0
+checks_bad=0
+
+resolve_branch_sha() {
   gh api "/repos/${repo}/git/ref/heads/${branch}" --jq '.object.sha'
 }
 
 current_locked_rev() {
-  local input="$1"
-
-  jq -r --arg input "$input" '.nodes[$input].locked.rev // ""' flake.lock
+  jq -er --arg input "$input" '.nodes[$input].locked.rev' flake.lock
 }
 
 status_signal_is_good() {
   local sha="$1"
   local status_json
-  local total_count
-  local state
 
   status_json="$(gh api "/repos/${repo}/commits/${sha}/status")"
-  total_count="$(jq -r '.total_count' <<< "$status_json")"
-  state="$(jq -r '.state' <<< "$status_json")"
+  status_total="$(jq -r '.total_count' <<< "$status_json")"
+  status_state="$(jq -r '.state' <<< "$status_json")"
 
-  if [[ "$total_count" == "0" ]]; then
+  if [[ "$status_total" == "0" ]]; then
     return 2
   fi
 
-  if [[ "$state" == "success" ]]; then
-    return 0
-  fi
-
-  return 1
+  [[ "$status_state" == "success" ]]
 }
 
 check_runs_signal_is_good() {
   local sha="$1"
   local checks_json
-  local total_count
-  local bad_count
+  local reported_total
 
-  checks_json="$(gh api -H "Accept: application/vnd.github+json" "/repos/${repo}/commits/${sha}/check-runs?per_page=100")"
-  total_count="$(jq -r '.total_count' <<< "$checks_json")"
-
-  if [[ "$total_count" == "0" ]]; then
-    return 2
-  fi
-
-  bad_count="$(
+  checks_json="$(
+    gh api --paginate --slurp \
+      -H "Accept: application/vnd.github+json" \
+      "/repos/${repo}/commits/${sha}/check-runs?per_page=100"
+  )"
+  reported_total="$(jq -r '.[0].total_count // 0' <<< "$checks_json")"
+  checks_total="$(jq -r '[.[].check_runs[]] | length' <<< "$checks_json")"
+  checks_success="$(jq -r '[.[].check_runs[] | select(.status == "completed" and .conclusion == "success")] | length' <<< "$checks_json")"
+  checks_bad="$(
     jq -r '
       [
-        .check_runs[]
+        .[].check_runs[]
         | select(
             (.status != "completed")
             or (
@@ -94,24 +107,33 @@ check_runs_signal_is_good() {
     ' <<< "$checks_json"
   )"
 
-  if [[ "$bad_count" == "0" ]]; then
-    return 0
+  if [[ "$checks_total" != "$reported_total" || "$checks_bad" != "0" ]]; then
+    return 1
   fi
 
-  return 1
+  if [[ "$checks_success" == "0" ]]; then
+    return 2
+  fi
 }
 
 upstream_commit_is_good() {
   local sha="$1"
   local saw_signal=0
   local failed_signal=0
+  local status_result
+  local checks_result
 
-  set +e
-  status_signal_is_good "$sha"
-  local status_result=$?
-  check_runs_signal_is_good "$sha"
-  local checks_result=$?
-  set -e
+  if status_signal_is_good "$sha"; then
+    status_result=0
+  else
+    status_result=$?
+  fi
+
+  if check_runs_signal_is_good "$sha"; then
+    checks_result=0
+  else
+    checks_result=$?
+  fi
 
   case "$status_result" in
     0) saw_signal=1 ;;
@@ -134,84 +156,79 @@ upstream_commit_is_good() {
   if [[ "$saw_signal" != "1" ]]; then
     return 2
   fi
-
-  return 0
 }
 
-{
-  echo "## Raspberry Pi kernel update summary"
-  echo
-  echo "Tracked upstream repository: \`${repo}\`"
-  echo
-} > "$summary_file"
+sha="$(resolve_branch_sha)"
+old_rev="$(current_locked_rev)"
+short_rev="${sha:0:12}"
 
-for entry in "${tracked_series[@]}"; do
-  IFS='|' read -r version branch input <<< "$entry"
-  sha="$(resolve_branch_sha "$branch")"
+write_output "version" "$version"
+write_output "upstream_branch" "$branch"
+write_output "input" "$input"
+write_output "old_rev" "$old_rev"
+write_output "new_rev" "$sha"
+write_output "short_rev" "$short_rev"
 
-  set +e
-  upstream_commit_is_good "$sha"
+if upstream_commit_is_good "$sha"; then
+  result=0
+else
   result=$?
-  set -e
+fi
 
-  case "$result" in
-    0)
-      current_rev="$(current_locked_rev "$input")"
-      if [[ "$current_rev" == "$sha" ]]; then
-        echo "Keeping ${version} (${branch}) at ${sha}: already locked"
-        unchanged+=("${version}|${branch}|${input}|${sha}")
-      else
-        echo "Accepting ${version} (${branch}) at ${sha}"
-        nix flake lock --override-input "$input" "github:${repo}?rev=${sha}"
-        accepted+=("${version}|${branch}|${input}|${sha}")
-      fi
-      ;;
-    1)
-      echo "Skipping ${version} (${branch}) at ${sha}: upstream checks are not successful"
-      skipped+=("${version}|${branch}|${sha}|upstream checks are not successful")
-      ;;
-    2)
-      echo "Skipping ${version} (${branch}) at ${sha}: no visible upstream checks or statuses"
-      skipped+=("${version}|${branch}|${sha}|no visible upstream checks or statuses")
-      ;;
-    *)
-      echo "Skipping ${version} (${branch}) at ${sha}: unexpected check result ${result}"
-      skipped+=("${version}|${branch}|${sha}|unexpected check result ${result}")
-      ;;
-  esac
-done
+case "$result" in
+  0) ;;
+  1) reason="upstream checks are not successful" ;;
+  2) reason="no visible upstream checks or statuses" ;;
+  *) reason="unexpected check result ${result}" ;;
+esac
 
-{
-  if (( ${#accepted[@]} > 0 )); then
-    echo "### Accepted updates"
-    echo
-    for item in "${accepted[@]}"; do
-      IFS='|' read -r version branch input sha <<< "$item"
-      echo "- \`${version}\` / \`${branch}\` / \`${input}\`: \`${sha}\`"
-    done
-    echo
-  fi
+if [[ "$result" != "0" ]]; then
+  cat > "$summary_file" <<EOF
+## Raspberry Pi kernel ${version} update
 
-  if (( ${#unchanged[@]} > 0 )); then
-    echo "### Already current"
-    echo
-    for item in "${unchanged[@]}"; do
-      IFS='|' read -r version branch input sha <<< "$item"
-      echo "- \`${version}\` / \`${branch}\` / \`${input}\`: \`${sha}\`"
-    done
-    echo
-  fi
+Update skipped: ${reason}.
 
-  if (( ${#skipped[@]} > 0 )); then
-    echo "### Skipped updates"
-    echo
-    for item in "${skipped[@]}"; do
-      IFS='|' read -r version branch sha reason <<< "$item"
-      echo "- \`${version}\` / \`${branch}\`: \`${sha}\` (${reason})"
-    done
-    echo
-  fi
-} >> "$summary_file"
+- Upstream branch: \`${branch}\`
+- Candidate revision: \`${sha}\`
+- Combined status: \`${status_state}\` (${status_total} contexts)
+- Check runs: ${checks_total} total, ${checks_success} successful, ${checks_bad} unacceptable
+EOF
+  echo "Skipping ${version} (${branch}) at ${sha}: ${reason}"
+  write_output "changed" "false"
+  exit 0
+fi
+
+commit_json="$(gh api "/repos/${repo}/commits/${sha}")"
+subject="$(jq -r '.commit.message | split("\n")[0]' <<< "$commit_json")"
+commit_date="$(jq -r '.commit.committer.date' <<< "$commit_json")"
+compare_url="https://github.com/${repo}/compare/${old_rev}...${sha}"
+
+cat > "$summary_file" <<EOF
+## Raspberry Pi kernel ${version} update
+
+Update \`${version}\` from \`${old_rev}\` to \`${sha}\`.
+
+### Upstream
+
+- Repository: [\`${repo}\`](https://github.com/${repo})
+- Branch: [\`${branch}\`](https://github.com/${repo}/tree/${branch})
+- Compare: [\`${old_rev:0:12}...${short_rev}\`](${compare_url})
+- Commit: ${subject} (\`${commit_date}\`)
+
+### Upstream validation
+
+- Combined status: \`${status_state}\` (${status_total} contexts)
+- Check runs: ${checks_total} total, ${checks_success} successful, ${checks_bad} unacceptable
+EOF
+
+if [[ "$old_rev" == "$sha" ]]; then
+  echo "Keeping ${version} (${branch}) at ${sha}: already locked"
+  write_output "changed" "false"
+  exit 0
+fi
+
+echo "Accepting ${version} (${branch}) at ${sha}"
+nix flake lock --override-input "$input" "github:${repo}?rev=${sha}"
 
 if git diff --quiet -- flake.lock; then
   write_output "changed" "false"

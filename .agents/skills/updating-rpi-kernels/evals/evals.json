@@ -16,13 +16,13 @@
     {
       "id": 2,
       "prompt": "Assume raspberrypi/linux now has a checked-good rpi-7.0.y branch and this repository tracks v6_12 and v6_18. Describe every repository change required to add v7_0 without making it the default. Do not edit files.",
-      "expected_output": "Uses numeric series comparison and covers flake input/lock, overlay arguments/versions, updater tracking, both board evaluations, ShellCheck, commit, and PR details.",
+      "expected_output": "Uses numeric series comparison and covers flake input/lock, overlay arguments/versions, flake-derived automation discovery, both board evaluations, ShellCheck, commit, and PR details.",
       "files": [],
       "expectations": [
         "Recognizes 7.0 as newer than 6.18 using numeric major/minor comparison.",
         "Adds rpi-linux-7_0-src to flake.nix and refreshes flake.lock.",
         "Adds the input argument and v7_0 versions entry to overlays/default.nix.",
-        "Adds v7_0, rpi-7.0.y, and rpi-linux-7_0-src to updater tracking.",
+        "Confirms flake-derived automation discovers v7_0, rpi-7.0.y, and rpi-linux-7_0-src without hardcoding them in Bash.",
         "Preserves the kernel default and evaluates linux-v7_0 for bcm2711 and bcm2712.",
         "Includes upstream-check validation, ShellCheck, and useful commit/PR metadata."
       ]
