@@ -1,0 +1,42 @@
+{
+  "skill_name": "updating-rpi-kernels",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Inspect this repository and describe the exact safe procedure to update only the tracked Raspberry Pi v6_18 kernel series to a newer checked-good rpi-6.18.y commit. Do not edit files.",
+      "expected_output": "Updates only rpi-linux-6_18-src, requires successful upstream status/check signals, evaluates bcm2711 and bcm2712, and leaves the configured default unchanged.",
+      "files": [],
+      "expectations": [
+        "Names rpi-linux-6_18-src as the only flake input to update.",
+        "Requires a successful visible upstream commit status or check run before accepting the revision.",
+        "Evaluates linux-v6_18-bcm2711 and linux-v6_18-bcm2712.",
+        "Does not change the configured default kernel series."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Assume raspberrypi/linux now has a checked-good rpi-7.0.y branch and this repository tracks v6_12 and v6_18. Describe every repository change required to add v7_0 without making it the default. Do not edit files.",
+      "expected_output": "Uses numeric series comparison and covers flake input/lock, overlay arguments/versions, updater tracking, both board evaluations, ShellCheck, commit, and PR details.",
+      "files": [],
+      "expectations": [
+        "Recognizes 7.0 as newer than 6.18 using numeric major/minor comparison.",
+        "Adds rpi-linux-7_0-src to flake.nix and refreshes flake.lock.",
+        "Adds the input argument and v7_0 versions entry to overlays/default.nix.",
+        "Adds v7_0, rpi-7.0.y, and rpi-linux-7_0-src to updater tracking.",
+        "Preserves the kernel default and evaluates linux-v7_0 for bcm2711 and bcm2712.",
+        "Includes upstream-check validation, ShellCheck, and useful commit/PR metadata."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Assume upstream branches are rpi-6.12.y, rpi-6.18.y, and rpi-6.6.y while this repository tracks v6_12 and v6_18. Decide whether a series should be added and explain why. Do not edit files.",
+      "expected_output": "Adds nothing because no branch is numerically newer than 6.18 and does not backfill 6.6.",
+      "files": [],
+      "expectations": [
+        "Adds no kernel series.",
+        "Explains that 6.6 is older than the highest tracked series 6.18 despite being untracked.",
+        "Uses numeric version ordering rather than lexical ordering."
+      ]
+    }
+  ]
+}
