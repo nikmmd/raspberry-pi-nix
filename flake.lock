@@ -152,11 +152,11 @@
     "rpi-linux-7_1-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1784305798,
-        "narHash": "sha256-IuQrDVbf1l6VjO/rhtbRWPw7H+RyWO71nyLlsAoAZGo=",
+        "lastModified": 1784803685,
+        "narHash": "sha256-zCHi9BB/CnQK4CNGiUyyj/OgK6OMgSLgiEIlq6EuCJE=",
         "owner": "raspberrypi",
         "repo": "linux",
-        "rev": "ca92a30381ffbcd6f80cdf9111e7c52c8e0ed5aa",
+        "rev": "b2a188497bc98f79d9017856a584e1503439b4b8",
         "type": "github"
       },
       "original": {
