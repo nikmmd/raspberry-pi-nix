@@ -21,7 +21,7 @@
     };
     rpi-linux-6_18-bin = {
       flake = false;
-      url = "github:raspberrypi/firmware/1.20260915";
+      url = "github:raspberrypi/firmware/ab5c7f86283ceb58b7adb269cae1d16092a31bf6";
     };
     rpi-firmware-src = {
       flake = false;

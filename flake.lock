@@ -154,17 +154,17 @@
     "rpi-linux-6_18-bin": {
       "flake": false,
       "locked": {
-        "lastModified": 1789394333,
-        "narHash": "sha256-vZxjq5icaVdlQUn5saJhJskW59xxr8IBO9iRULO6ppg=",
+        "lastModified": 1793629266,
+        "narHash": "sha256-llSD7dneWF7Sw34ziy+XKVFAucvfI837klmin12sfbE=",
         "owner": "raspberrypi",
         "repo": "firmware",
-        "rev": "6f0881cba8bea8ec24956a5718714730e9936ec5",
+        "rev": "ab5c7f86283ceb58b7adb269cae1d16092a31bf6",
         "type": "github"
       },
       "original": {
         "owner": "raspberrypi",
-        "ref": "1.20260915",
         "repo": "firmware",
+        "rev": "ab5c7f86283ceb58b7adb269cae1d16092a31bf6",
         "type": "github"
       }
     },
