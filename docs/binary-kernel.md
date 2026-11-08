@@ -19,6 +19,18 @@ source request. In particular, `v7_1` currently falls back to source, retaining
 source initrd defaults. The source series are `v6_12`, `v6_18`, and `v7_1`;
 unknown series fail. There is no `"firmware"` series selector.
 
+The standalone flake defaults to `nixos-26.05`, locked to an exact revision.
+Consumers can align the fork's package set with their own nixpkgs input:
+
+```nix
+inputs.raspberry-pi-nix.inputs.nixpkgs.follows = "nixpkgs";
+```
+
+This overrides the standalone default, including packages imported by
+`raspberry-pi-nix.pin-inputs`. Vendor bundle pins remain independent. A different
+nixpkgs revision changes packaging/userspace derivations and may cause cache
+misses; it does not compile a binary kernel from source.
+
 ## Bundles and availability
 
 Each binary series has its own `flake = false` firmware-repository input:

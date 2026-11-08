@@ -2,7 +2,7 @@
   description = "raspberry-pi nixos configuration";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     rpi-linux-6_12-src = {
       flake = false;
       url = "github:raspberrypi/linux/rpi-6.12.y";
