@@ -7,6 +7,7 @@
   lib,
   pkgs,
   config,
+  options,
   ...
 }:
 
@@ -15,6 +16,15 @@ let
   pinned = pinnedFor pkgs;
   version = cfg.kernel-version;
   board = cfg.board;
+  useBinary =
+    cfg.kernel-backend == "binary" && lib.hasAttrByPath [ version board ] pkgs.rpi-binary-kernels;
+  selectedKernel =
+    if useBinary then
+      pkgs.rpi-binary-kernels.${version}.${board}
+    else if lib.hasAttrByPath [ version board ] pkgs.rpi-kernels then
+      pkgs.rpi-kernels.${version}.${board}
+    else
+      throw "Unsupported Raspberry Pi kernel series ${version} for ${board}; available source series: ${lib.concatStringsSep ", " (builtins.attrNames pkgs.rpi-kernels)}.";
   kernel = config.system.build.kernel;
   initrd = "${config.system.build.initialRamdisk}/${config.system.boot.loader.initrdFile}";
 in
@@ -26,10 +36,18 @@ in
 
   options = with lib; {
     raspberry-pi-nix = {
+      kernel-backend = mkOption {
+        default = "source";
+        type = types.enum [
+          "source"
+          "binary"
+        ];
+        description = "Source-built kernel, or prefer an official precompiled vendor kernel with source fallback when the selected series/board is unavailable.";
+      };
       kernel-version = mkOption {
         default = "v6_12";
         type = types.str;
-        description = "Kernel version to build.";
+        description = "Kernel series to select; the binary backend falls back to a source build if no matching vendor kernel is available.";
       };
       board = mkOption {
         type = types.enum [
@@ -109,6 +127,19 @@ in
   };
 
   config = {
+    warnings =
+      lib.optional (cfg.kernel-backend == "binary" && !useBinary)
+        "Raspberry Pi binary kernel ${version} for ${board} is unavailable; falling back to a source build.";
+    assertions = lib.optionals useBinary [
+      {
+        assertion = config.boot.extraModulePackages == [ ];
+        message = "The Raspberry Pi binary kernel does not support boot.extraModulePackages; use the source backend.";
+      }
+      {
+        assertion = config.boot.kernelPackages.kernel.isRaspberryPiBinary or false;
+        message = "The binary backend requires the matching rpi-binary-kernels package.";
+      }
+    ];
     systemd.services = {
       "raspberry-pi-firmware-migrate" = {
         description = "update the firmware partition";
@@ -308,7 +339,8 @@ in
         let
           rpi-overlays = [
             core-overlay
-          ] ++ (if config.raspberry-pi-nix.libcamera-overlay.enable then [ libcamera-overlay ] else [ ]);
+          ]
+          ++ (if config.raspberry-pi-nix.libcamera-overlay.enable then [ libcamera-overlay ] else [ ]);
           rpi-overlay = lib.composeManyExtensions rpi-overlays;
           pin-prev-overlay =
             overlay: pinned-prev: final: prev:
@@ -321,8 +353,20 @@ in
               restricted-overlay = lib.getAttrs (builtins.attrNames (overlay { } { })) applied-overlay;
             in
             prev // restricted-overlay;
+          # Keep this host's boot firmware paired with its effective binary kernel.
+          # Apply after pinning so both pin-inputs modes use the selected bundle.
+          firmware-overlay = final: prev: {
+            raspberrypifw =
+              if useBinary then
+                prev.raspberrypifw.overrideAttrs (_: {
+                  src = config.boot.kernelPackages.kernel.firmwareSource;
+                })
+              else
+                prev.raspberrypifw;
+          };
         in
-        if cfg.pin-inputs.enable then [ (pin-prev-overlay rpi-overlay pinned) ] else [ rpi-overlay ];
+        (if cfg.pin-inputs.enable then [ (pin-prev-overlay rpi-overlay pinned) ] else [ rpi-overlay ])
+        ++ [ firmware-overlay ];
     };
     boot = {
       kernelParams =
@@ -343,15 +387,40 @@ in
             [ "init=/sbin/init" ]
           ];
       initrd = {
+        # NixOS's generic list includes SATA/PC keyboard drivers absent from
+        # the vendor config. Keep strict module checking with a Pi-specific list.
+        includeDefaultModules = lib.mkIf useBinary (lib.mkDefault false);
+        # Vendor Pi kernels have SPI/I2C TPM drivers, not the PC TPM drivers
+        # pulled in by the newer systemd initrd's default TPM support.
+        systemd = lib.optionalAttrs (options.boot.initrd.systemd ? tpm2) {
+          tpm2.enable = lib.mkIf useBinary (lib.mkDefault false);
+        };
+        kernelModules = lib.optionals useBinary [ "dm_mod" ];
         availableKernelModules = [
           "usbhid"
           "usb_storage"
           "vc4"
           "pcie_brcmstb" # required for the pcie bus to work
           "reset-raspberrypi" # required for vl805 firmware to load
+        ]
+        ++ lib.optionals useBinary [
+          "ahci"
+          "nvme"
+          "sd_mod"
+          "sr_mod"
+          "mmc_block"
+          "xhci_hcd"
+          "xhci_pci"
+          "hid_generic"
+          "hid_apple"
+          "hid_roccat"
+          "hid_logitech_hidpp"
+          "hid_logitech_dj"
+          "hid_microsoft"
+          "hid_cherry"
         ];
       };
-      kernelPackages = pkgs.linuxPackagesFor pkgs.rpi-kernels."${version}"."${board}";
+      kernelPackages = pkgs.linuxPackagesFor selectedKernel;
       loader = {
         grub.enable = lib.mkDefault false;
         initScript.enable = !cfg.uboot.enable;

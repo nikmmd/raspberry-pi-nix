@@ -15,9 +15,17 @@
       flake = false;
       url = "github:raspberrypi/linux/rpi-7.1.y";
     };
+    rpi-linux-6_12-bin = {
+      flake = false;
+      url = "github:raspberrypi/firmware/1.20260408";
+    };
+    rpi-linux-6_18-bin = {
+      flake = false;
+      url = "github:raspberrypi/firmware/1.20260915";
+    };
     rpi-firmware-src = {
       flake = false;
-      url = "github:raspberrypi/firmware/1.20241008";
+      url = "github:raspberrypi/firmware/1.20260915";
     };
     rpi-firmware-nonfree-src = {
       flake = false;
@@ -61,9 +69,9 @@
             }
           )
           (
-            builtins.filter
-              (input: builtins.match "rpi-linux-[0-9]+_[0-9]+-src" input != null)
-              (builtins.attrNames srcs)
+            builtins.filter (input: builtins.match "rpi-linux-[0-9]+_[0-9]+-src" input != null) (
+              builtins.attrNames srcs
+            )
           );
       pinnedOverlays = with self.overlays; [
         core
@@ -99,6 +107,10 @@
     in
     {
       lib.rpiKernelSeries = kernelSeries;
+      lib.rpiBinaryKernelSeries = map (version: {
+        inherit version;
+        input = "rpi-linux-${pinned.lib.removePrefix "v" version}-bin";
+      }) (builtins.attrNames pinned.rpi-binary-kernels);
       overlays = {
         core = import ./overlays (builtins.removeAttrs srcs [ "self" ]);
         libcamera = import ./overlays/libcamera.nix (builtins.removeAttrs srcs [ "self" ]);
@@ -126,6 +138,10 @@
         with pinned.lib;
         let
           kernels = foldlAttrs f { } pinned.rpi-kernels;
+          binaryKernels = foldlAttrs (
+            acc: kernel-version: board-attr-set:
+            f acc "binary-${kernel-version}" board-attr-set
+          ) { } pinned.rpi-binary-kernels;
           f =
             acc: kernel-version: board-attr-set:
             foldlAttrs (
@@ -143,6 +159,7 @@
           wireless-firmware = pinned.raspberrypiWirelessFirmware;
           uboot-rpi-arm64 = pinned.uboot-rpi-arm64;
         }
-        // kernels;
+        // kernels
+        // binaryKernels;
     };
 }

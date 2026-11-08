@@ -58,7 +58,9 @@
         "rpi-bluez-firmware-src": "rpi-bluez-firmware-src",
         "rpi-firmware-nonfree-src": "rpi-firmware-nonfree-src",
         "rpi-firmware-src": "rpi-firmware-src",
+        "rpi-linux-6_12-bin": "rpi-linux-6_12-bin",
         "rpi-linux-6_12-src": "rpi-linux-6_12-src",
+        "rpi-linux-6_18-bin": "rpi-linux-6_18-bin",
         "rpi-linux-6_18-src": "rpi-linux-6_18-src",
         "rpi-linux-7_1-src": "rpi-linux-7_1-src",
         "rpicam-apps-src": "rpicam-apps-src"
@@ -101,16 +103,33 @@
     "rpi-firmware-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1728405098,
-        "narHash": "sha256-4gnK0KbqFnjBmWia9Jt2gveVWftmHrprpwBqYVqE/k0=",
+        "lastModified": 1789394333,
+        "narHash": "sha256-vZxjq5icaVdlQUn5saJhJskW59xxr8IBO9iRULO6ppg=",
         "owner": "raspberrypi",
         "repo": "firmware",
-        "rev": "7bbb5f80d20a2335066a8781459c9f33e5eebc64",
+        "rev": "6f0881cba8bea8ec24956a5718714730e9936ec5",
         "type": "github"
       },
       "original": {
         "owner": "raspberrypi",
-        "ref": "1.20241008",
+        "ref": "1.20260915",
+        "repo": "firmware",
+        "type": "github"
+      }
+    },
+    "rpi-linux-6_12-bin": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1775660719,
+        "narHash": "sha256-4+eqk+3WxSZRfaGyRIW3zGC6ABo50PKGke0en2IvgXk=",
+        "owner": "raspberrypi",
+        "repo": "firmware",
+        "rev": "dce3a7f35498e1a6340748f599e7d74d9001c1fe",
+        "type": "github"
+      },
+      "original": {
+        "owner": "raspberrypi",
+        "ref": "1.20260408",
         "repo": "firmware",
         "type": "github"
       }
@@ -129,6 +148,23 @@
         "owner": "raspberrypi",
         "ref": "rpi-6.12.y",
         "repo": "linux",
+        "type": "github"
+      }
+    },
+    "rpi-linux-6_18-bin": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789394333,
+        "narHash": "sha256-vZxjq5icaVdlQUn5saJhJskW59xxr8IBO9iRULO6ppg=",
+        "owner": "raspberrypi",
+        "repo": "firmware",
+        "rev": "6f0881cba8bea8ec24956a5718714730e9936ec5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "raspberrypi",
+        "ref": "1.20260915",
+        "repo": "firmware",
         "type": "github"
       }
     },

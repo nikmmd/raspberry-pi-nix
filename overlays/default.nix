@@ -2,6 +2,8 @@
   rpi-linux-6_12-src,
   rpi-linux-6_18-src,
   rpi-linux-7_1-src,
+  rpi-linux-6_12-bin,
+  rpi-linux-6_18-bin,
   rpi-firmware-src,
   rpi-firmware-nonfree-src,
   rpi-bluez-firmware-src,
@@ -21,6 +23,16 @@ let
     v7_1 = {
       src = rpi-linux-7_1-src;
       patches = [ ];
+    };
+  };
+  binarySeries = {
+    v6_12 = {
+      bundle = rpi-linux-6_12-bin;
+      isLTS = true;
+    };
+    v6_18 = {
+      bundle = rpi-linux-6_18-bin;
+      isLTS = true;
     };
   };
   boards = [
@@ -99,6 +111,20 @@ let
   rpi-kernels = builtins.foldl' (b: a: final.lib.recursiveUpdate b (rpi-kernel a)) { };
 in
 {
+  rpi-binary-kernels = final.lib.genAttrs (builtins.attrNames binarySeries) (
+    series:
+    final.lib.genAttrs boards (
+      board:
+      final.callPackage ./binary-kernel.nix {
+        inherit board;
+        inherit (binarySeries.${series}) isLTS;
+        expectedSeries = final.lib.replaceStrings [ "_" ] [ "." ] (final.lib.removePrefix "v" series);
+        firmware = binarySeries.${series}.bundle;
+        kernelPatches = [ ];
+      }
+    )
+  );
+
   # disable firmware compression so that brcm firmware can be found at
   # the path expected by raspberry pi firmware/device tree
   compressFirmwareXz = x: x;

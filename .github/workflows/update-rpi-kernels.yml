@@ -27,7 +27,7 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@main
 
       - name: Check updater script
-        run: nix shell nixpkgs#shellcheck -c shellcheck -s bash .github/scripts/update-rpi-kernels.sh
+        run: nix shell nixpkgs#shellcheck -c shellcheck -s bash .github/scripts/update-rpi-kernels.sh .github/scripts/publish-kernel-update.sh
 
       - name: List tracked kernel series
         id: series
@@ -61,15 +61,18 @@ jobs:
         id: update
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KERNEL_SERIES: ${{ matrix.series }}
         run: |
-          .github/scripts/update-rpi-kernels.sh "${{ matrix.series }}" kernel-update-summary.md
+          .github/scripts/update-rpi-kernels.sh "$KERNEL_SERIES" kernel-update-summary.md
           cat kernel-update-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Evaluate kernel derivations
         if: steps.update.outputs.changed == 'true'
+        env:
+          KERNEL_SERIES: ${{ matrix.series }}
         run: |
-          nix eval --no-write-lock-file '.#packages.aarch64-linux."linux-${{ matrix.series }}-bcm2711".drvPath'
-          nix eval --no-write-lock-file '.#packages.aarch64-linux."linux-${{ matrix.series }}-bcm2712".drvPath'
+          nix eval --no-write-lock-file ".#packages.aarch64-linux.\"linux-${KERNEL_SERIES}-bcm2711\".drvPath"
+          nix eval --no-write-lock-file ".#packages.aarch64-linux.\"linux-${KERNEL_SERIES}-bcm2712\".drvPath"
           cat >> kernel-update-summary.md <<'EOF'
 
           ### Repository validation
@@ -92,61 +95,5 @@ jobs:
           TARGET_REV: ${{ steps.update.outputs.new_rev }}
           SHORT_REV: ${{ steps.update.outputs.short_rev }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
-        run: |
-          set -euo pipefail
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          gh auth setup-git
-
-          git switch -C "$BRANCH_NAME"
-          git add flake.lock
-          git commit \
-            -m "chore(kernel): update Raspberry Pi ${VERSION#v} kernel" \
-            -m "Update the checked-good ${VERSION} kernel lock to ${TARGET_REV}."
-
-          remote_ref="refs/heads/$BRANCH_NAME"
-          remote_sha="$(git ls-remote --heads origin "$remote_ref" | awk '{print $1}')"
-
-          if [[ -n "$remote_sha" ]]; then
-            git fetch origin "$remote_ref"
-
-            if [[ "$(git show -s --format='%ae' "$remote_sha")" != '41898282+github-actions[bot]@users.noreply.github.com' ]]; then
-              echo "Refusing to overwrite non-bot branch $BRANCH_NAME" >&2
-              exit 1
-            fi
-
-            while IFS= read -r path; do
-              if [[ "$path" != 'flake.lock' ]]; then
-                echo "Refusing to overwrite $BRANCH_NAME with non-lockfile change: $path" >&2
-                exit 1
-              fi
-            done < <(git diff --name-only "origin/$BASE_BRANCH...$remote_sha")
-
-            if ! git diff --quiet "$remote_sha" HEAD; then
-              git push --force-with-lease="$remote_ref:$remote_sha" origin "HEAD:$remote_ref"
-            fi
-          else
-            git push --force-with-lease="$remote_ref:" origin "HEAD:$remote_ref"
-          fi
-
-          pr_number="$(
-            gh api --method GET "/repos/$GITHUB_REPOSITORY/pulls" \
-              -f state=open \
-              -f base="$BASE_BRANCH" \
-              -f head="$REPOSITORY_OWNER:$BRANCH_NAME" \
-              --jq '.[0].number // empty'
-          )"
-          display_version="${VERSION#v}"
-          display_version="${display_version/_/.}"
-          title="chore(kernel): update Raspberry Pi ${display_version} to ${SHORT_REV}"
-
-          if [[ -n "$pr_number" ]]; then
-            gh pr edit "$pr_number" --title "$title" --body-file kernel-update-summary.md
-          else
-            gh pr create \
-              --base "$BASE_BRANCH" \
-              --head "$BRANCH_NAME" \
-              --title "$title" \
-              --body-file kernel-update-summary.md
-          fi
+          UPDATE_KIND: source
+        run: bash .github/scripts/publish-kernel-update.sh

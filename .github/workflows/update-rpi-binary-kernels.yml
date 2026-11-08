@@ -1,0 +1,162 @@
+name: update-rpi-binary-kernels
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 7 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-rpi-binary-kernels
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      series: ${{ steps.series.outputs.series }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Install nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Check binary update selection boundaries
+        run: python3 -B -m unittest discover -s .github/scripts
+      - name: List registered binary kernel series
+        id: series
+        run: echo "series=$(python3 .github/scripts/update-rpi-binary-kernels.py --list-series)" >> "$GITHUB_OUTPUT"
+
+  update:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        series: ${{ fromJSON(needs.discover.outputs.series) }}
+    concurrency:
+      group: update-rpi-binary-kernels-validate-${{ matrix.series }}
+      cancel-in-progress: false
+    env:
+      KERNEL_SERIES: ${{ matrix.series }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Install nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Select and lock newer vendor binaries
+        id: update
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/update-rpi-binary-kernels.py "$KERNEL_SERIES" "$RUNNER_TEMP/kernel-update-summary.md"
+          cat "$RUNNER_TEMP/kernel-update-summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Validate binary kernel behavior for every series and board
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          nix eval --impure --json --file tests/binary-kernel.nix --apply 'builtins.mapAttrs (_: v: v.checks)'
+      - name: Build both selected binary packages on the native packaging platform
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          nix build --impure --no-link --expr '
+            let
+              flake = builtins.getFlake ("path:" + toString ./.);
+              pkgs = import flake.inputs.nixpkgs {
+                localSystem = "x86_64-linux";
+                crossSystem = "aarch64-linux";
+                overlays = [ flake.overlays.core flake.overlays.libcamera ];
+              };
+              kernels = builtins.getAttr (builtins.getEnv "KERNEL_SERIES") pkgs.rpi-binary-kernels;
+            in [ kernels.bcm2711 kernels.bcm2712 ]'
+          cat >> "$RUNNER_TEMP/kernel-update-summary.md" <<'EOF'
+
+          ### Repository validation
+
+          - Binary backend behavior checks passed for all registered series and both boards.
+          - Both selected board binary packages built using x86_64-native cross packaging (no source kernel compilation).
+          - Native ARM initrd builds and hardware boot validation remain manual; these checks do not establish upstream checked-good status.
+
+          ### Automation lifecycle
+
+          This PR rolls forward to newer matching vendor binary commits while open. After merge, the next update creates a new PR from the same series branch.
+          EOF
+      - name: Prepare validated patch
+        if: steps.update.outputs.changed == 'true'
+        env:
+          TARGET_REV: ${{ steps.update.outputs.new_rev }}
+          SHORT_REV: ${{ steps.update.outputs.short_rev }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/binary-update"
+          git rev-parse HEAD > "$RUNNER_TEMP/binary-update/base-rev"
+          git diff --binary -- flake.nix flake.lock > "$RUNNER_TEMP/binary-update/update.patch"
+          printf '%s\n' "$TARGET_REV" > "$RUNNER_TEMP/binary-update/target-rev"
+          printf '%s\n' "$SHORT_REV" > "$RUNNER_TEMP/binary-update/short-rev"
+          cp "$RUNNER_TEMP/kernel-update-summary.md" "$RUNNER_TEMP/binary-update/summary.md"
+      - name: Upload validated update
+        if: steps.update.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-update-${{ matrix.series }}
+          path: ${{ runner.temp }}/binary-update
+          retention-days: 1
+
+  publish:
+    needs: [discover, update]
+    if: ${{ !cancelled() && needs.discover.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        series: ${{ fromJSON(needs.discover.outputs.series) }}
+    concurrency:
+      group: update-rpi-binary-kernels-publish-${{ matrix.series }}
+      cancel-in-progress: false
+    env:
+      KERNEL_SERIES: ${{ matrix.series }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Download validated updates
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-update-${{ matrix.series }}
+          path: ${{ runner.temp }}/validated-update
+          merge-multiple: true
+      - name: Create or update pull request when a candidate was validated
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          UPDATE_KIND: binary
+        run: |
+          update_dir="$RUNNER_TEMP/validated-update"
+          if [[ ! -f "$update_dir/update.patch" ]]; then
+            echo "No newer binary candidate for $KERNEL_SERIES; skipping publication."
+            exit 0
+          fi
+          if [[ "$(git rev-parse HEAD)" != "$(cat "$update_dir/base-rev")" ]]; then
+            echo 'Default branch advanced after validation; refusing to publish a stale patch.' >&2
+            exit 1
+          fi
+          git apply --index "$update_dir/update.patch"
+          export VERSION="$KERNEL_SERIES"
+          export BRANCH_NAME="automation/kernel-binary-$KERNEL_SERIES"
+          TARGET_REV="$(cat "$update_dir/target-rev")"
+          SHORT_REV="$(cat "$update_dir/short-rev")"
+          export TARGET_REV SHORT_REV
+          export SUMMARY_FILE="$update_dir/summary.md"
+          bash .github/scripts/publish-kernel-update.sh

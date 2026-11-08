@@ -27,6 +27,19 @@ upgrading.
 
 See the `rpi-example` config in this flake for an example config built by CI.
 
+## Official precompiled vendor kernel
+
+Set `raspberry-pi-nix.kernel-backend = "binary"` to use an official vendor
+kernel bundle without compiling the kernel or modules. The independently pinned
+`v6_12` and `v6_18` bundles support `bcm2711` and `bcm2712`, with matching boot
+firmware selected per host. The backend defaults to `"source"` and
+`kernel-version` defaults to `"v6_12"` for either backend; set it to `"v6_18"`
+to select that binary series. An unavailable series/board, including `v7_1`,
+warns and falls back to source; a broken registered bundle fails instead.
+The 6.12.75 bundle is a legacy vendor baseline, not a claim of current security
+patches or verified hardware boot.
+See [configuration, upgrades, verification and limitations](docs/binary-kernel.md).
+
 ## Using the provided cache to avoid compiling linux
 
 This repo uses the raspberry pi linux kernel fork, and compiling linux takes a
@@ -222,9 +235,11 @@ the [config.txt
 file](https://www.raspberrypi.com/documentation/computers/config_txt.html).
 
 Additionally, the firmware, device trees, and overlays from the `raspberrypifw`
-package populate the firmware partition. This package is kept up to date by the
-overlay applied by this package, so you don't need configure this. However, if
-you want to use different firmware you can override that package to do so.
+package populate the firmware partition. With an effective binary kernel, this
+package comes from the same per-series bundle as that kernel; do not override it
+independently. Source kernels retain the separate `rpi-firmware-src` default.
+Updating a system generation does not by itself guarantee that the shared FAT
+firmware files have been migrated; see the [upgrade and recovery gate](docs/binary-kernel.md#consumer-upgrade-and-pre-reboot-gate).
 
 ## What's not working?
 
