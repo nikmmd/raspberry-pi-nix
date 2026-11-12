@@ -137,11 +137,11 @@
     "rpi-linux-6_12-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1789575897,
-        "narHash": "sha256-MzXbdTdpGgaYLP75FHIhccJC9zDibWN7wqhM8IRIBsc=",
+        "lastModified": 1794234979,
+        "narHash": "sha256-2e5qJwNmkLocsc7yOX5UDXVYXUxfdpwewMZLs1TXjps=",
         "owner": "raspberrypi",
         "repo": "linux",
-        "rev": "9c40c75f681b0b8882db9b624dfec8f81ff492f2",
+        "rev": "ab4372076bb840600e522ae776887ae2bc488fa6",
         "type": "github"
       },
       "original": {
