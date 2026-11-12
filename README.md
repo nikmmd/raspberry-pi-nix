@@ -59,6 +59,19 @@ suitable for flashing to an sd-card can be found at the attribute
 nix build '.#nixosConfigurations.rpi-example.config.system.build.sdImage'
 ```
 
+The module reuses nixpkgs' maintained SD-image builder and first-boot services,
+while retaining this project's Pi-specific firmware and U-Boot population.
+Store registration is independent of root-partition expansion and runs before
+the Nix daemon. Automatic garbage collection requires successful registration,
+so a failed initialization cannot collect the unrooted running system.
+
+`tests/image-gc.sh` checks registration with real Nix GC. Run it inside
+`nixos/nix:2.35.4`, mounting a **disposable copy** of an image's root filesystem
+at `/target`, setting `DISPOSABLE_IMAGE=1`, and passing the image's system store
+path and SSH helper store path. It first verifies that registration preserves
+SSH, then removes the system profile and intentionally collects the disposable
+store to reproduce the failure. Never mount live media or a host store there.
+
 ## The firmware partition
 
 The image produced by this package is partitioned in the same way as the aarch64

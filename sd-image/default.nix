@@ -1,9 +1,18 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, modulesPath, ... }:
 
 {
-  imports = [ ./sd-image.nix ];
+  imports = [ (modulesPath + "/installer/sd-card/sd-image.nix") ];
 
   config = {
+    # Reuse maintained image initialization without generic hardware selection.
+    hardware.enableAllHardware = lib.mkForce false;
+
+    # Never collect an unregistered first-boot system if initialization fails.
+    systemd.services.nix-gc = lib.mkIf config.nix.gc.automatic {
+      requires = [ "register-nix-paths.service" ];
+      after = [ "register-nix-paths.service" ];
+    };
+
     boot.loader.grub.enable = false;
 
     boot.consoleLogLevel = lib.mkDefault 7;
@@ -44,6 +53,8 @@
           '';
       in
       {
+        firmwarePartitionName = cfg.firmware-partition-label;
+        firmwareSize = lib.mkDefault 128;
         populateFirmwareCommands = ''
           ${populate-kernel}
           cp -r ${pkgs.raspberrypifw}/share/raspberrypi/boot/{start*.elf,*.dtb,bootcode.bin,fixup*.dat,overlays} firmware
